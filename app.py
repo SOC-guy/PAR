@@ -348,7 +348,7 @@ with packet_tab:
     page_count = max((len(visible) + page_size - 1) // page_size, 1)
     page_number = st.number_input("Page", min_value=1, max_value=page_count, value=1, step=1)
     start = (int(page_number) - 1) * page_size
-    st.dataframe(visible.iloc[start : start + page_size], use_container_width=True, hide_index=True, height=480)
+    st.dataframe(visible.iloc[start : start + page_size], width="stretch", hide_index=True, height=480)
     st.caption(f"Showing {start + 1:,}-{min(start + page_size, len(visible)):,} of {len(visible):,} packets.")
     st.download_button("Download packet summary CSV", data=visible.to_csv(index=False), file_name="packet-summary.csv", mime="text/csv")
 
@@ -380,11 +380,11 @@ with domains_tab:
     if web_rows.empty:
         st.info("No HTTP host headers, TLS server names, DNS query names, or URLs were identified in the decoded packets.")
     else:
-        st.dataframe(web_rows[["packet", "src", "dst", "protocol", "host", "url"]], use_container_width=True, hide_index=True)
+        st.dataframe(web_rows[["packet", "src", "dst", "protocol", "host", "url"]], width="stretch", hide_index=True)
     extra_urls = sorted({match.rstrip(".,);]") for row in records for match in URL_PATTERN.findall(row.get("payload_text", ""))})
     if extra_urls:
         st.markdown("**URLs found in decoded payload text**")
-        st.dataframe(pd.DataFrame({"URL": extra_urls}), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame({"URL": extra_urls}), width="stretch", hide_index=True)
 
 with enrich_tab:
     ip_addresses = sorted({value for row in records for value in (row["src"], row["dst"]) if value})
@@ -396,7 +396,7 @@ with enrich_tab:
         for index, address in enumerate(ip_addresses):
             enriched.append(enrich_ip(address))
             progress.progress((index + 1) / max(len(ip_addresses), 1))
-        st.dataframe(pd.DataFrame(enriched), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(enriched), width="stretch", hide_index=True)
         st.caption("RDAP queries disclose the selected public IP addresses to rdap.org. Private, reserved, and non-routable addresses are not sent.")
 
 with analysis_tab:
@@ -441,6 +441,6 @@ with analysis_tab:
         ]
         if candidates:
             st.markdown("**Base64 candidates**")
-            st.dataframe(pd.DataFrame(candidates), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(candidates), width="stretch", hide_index=True)
         else:
             st.caption("No printable Base64 candidates found in the extracted text fields.")
