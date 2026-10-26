@@ -93,6 +93,9 @@ def _packet_summary(packet: Any, index: int) -> dict[str, Any]:
     dns = layers.get("dns")
     host = _field(http, "host") if http else ""
     uri = _field(http, "request_uri") if http else ""
+    http_method = _field(http, "request_method") if http else ""
+    http_status = _field(http, "response_code") if http else ""
+    http_content_type = _field(http, "content_type") if http else ""
     if host and uri:
         url = f"http://{host}{uri}"
     elif uri.startswith("http://") or uri.startswith("https://"):
@@ -134,6 +137,9 @@ def _packet_summary(packet: Any, index: int) -> dict[str, Any]:
         "udp_stream": udp_stream,
         "host": host,
         "url": url,
+        "http_method": http_method,
+        "http_status": http_status,
+        "http_content_type": http_content_type,
         "info": " ".join(info_parts),
         "payload_text": payload_text.strip(),
         "payload_hex": raw_hex,
@@ -170,6 +176,12 @@ def build_streams(records: list[dict[str, Any]]) -> dict[str, str]:
             bits.append(f"host={row['host']}")
         if row.get("url"):
             bits.append(f"url={row['url']}")
+        if row.get("http_method"):
+            bits.append(f"http_method={row['http_method']}")
+        if row.get("http_status"):
+            bits.append(f"http_status={row['http_status']}")
+        if row.get("http_content_type"):
+            bits.append(f"content_type={row['http_content_type']}")
         if row.get("info"):
             bits.append(row["info"])
         if row.get("payload_text"):
@@ -244,16 +256,37 @@ def analysis_context(records: list[dict[str, Any]], streams: dict[str, str], inc
     endpoints = Counter(value for row in records for value in (row["src"], row["dst"]) if value)
     urls = sorted({row["url"] for row in records if row["url"]})
     hosts = sorted({row["host"] for row in records if row["host"]})
+    http_packets = [
+        {
+            "packet": row["packet"],
+            "tcp_stream": row["tcp_stream"],
+            "src": row["src"],
+            "src_port": row["src_port"],
+            "dst": row["dst"],
+            "dst_port": row["dst_port"],
+            "method": row["http_method"],
+            "url": row["url"],
+            "status": row["http_status"],
+            "content_type": row["http_content_type"],
+        }
+        for row in records
+        if row["http_method"] or row["http_status"]
+    ]
     context: dict[str, Any] = {
         "packet_count": len(records),
         "protocol_counts": protocol_counts,
         "top_endpoints": endpoints.most_common(30),
         "hosts": hosts[:200],
         "urls": urls[:200],
-        "tcp_streams": {key: value[:12000] for key, value in list(streams.items())[:40]},
+        "http_packet_count": len(http_packets),
+        "http_packets": http_packets[:100],
+        "tcp_streams": {key: value[:2000] for key, value in list(streams.items())[:20]},
         "packet_examples": [
-            {key: row[key] for key in ("packet", "time", "src", "dst", "protocol", "src_port", "dst_port", "info", "payload_text")}
-            for row in records[:300]
+            {
+                key: (row[key][:300] if key == "payload_text" else row[key])
+                for key in ("packet", "time", "src", "dst", "protocol", "src_port", "dst_port", "info", "payload_text")
+            }
+            for row in records[:50]
         ],
     }
     if include_base64:
@@ -410,9 +443,16 @@ with analysis_tab:
             st.markdown(question)
         context = analysis_context(records, streams, include_base64)
         conversation = [
-            {"role": "user", "content": f"Packet capture evidence (JSON):\n{context}"},
-            *st.session_state.ollama_chat,
-            {"role": "user", "content": question},
+            *st.session_state.ollama_chat[-6:],
+            {
+                "role": "user",
+                "content": (
+                    "A packet capture is already loaded. Answer the question using the capture evidence below; "
+                    "do not ask the user to upload or paste it again. If the evidence contains no matching traffic, "
+                    "say so and cite what was checked.\n\n"
+                    f"Question: {question}\n\nCapture evidence (JSON):\n{context}"
+                ),
+            },
         ]
         try:
             with st.spinner(f"Asking {selected_model}..."):
