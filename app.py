@@ -148,7 +148,7 @@ def parse_capture(capture_path: str, display_filter: str = "") -> list[dict[str,
         display_filter=display_filter or None,
         keep_packets=False,
         use_json=True,
-        include_raw=False,
+        include_raw=True,
     )
     try:
         for index, packet in enumerate(capture, start=1):
