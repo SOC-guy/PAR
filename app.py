@@ -218,13 +218,21 @@ def ollama_models(base_url: str) -> list[str]:
     return [item["name"] for item in response.json().get("models", []) if item.get("name")]
 
 
-def ask_ollama(base_url: str, model: str, system_prompt: str, user_prompt: str) -> str:
+def ask_ollama(
+    base_url: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str = "",
+    conversation: list[dict[str, str]] | None = None,
+) -> str:
+    messages = [{"role": "system", "content": system_prompt}]
+    if conversation is None:
+        messages.append({"role": "user", "content": user_prompt})
+    else:
+        messages.extend(conversation)
     response = requests.post(
         f"{base_url.rstrip('/')}/api/chat",
-        json={"model": model, "stream": False, "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]},
+        json={"model": model, "stream": False, "messages": messages},
         timeout=None,
     )
     response.raise_for_status()
@@ -278,7 +286,7 @@ else:
     if model_error:
         st.sidebar.caption("Could not load model list: " + model_error)
 display_filter = st.sidebar.text_input("Wireshark display filter", placeholder="e.g. http or tcp.port == 443")
-include_base64 = st.sidebar.checkbox("Find and decode Base64 candidates", value=False, help="Only decodes printable UTF-8 candidates in extracted packet text; encoded content is sent to Ollama only when analysis is run.")
+include_base64 = st.sidebar.checkbox("Find and decode Base64 candidates", value=False, help="Only decodes printable UTF-8 candidates in extracted packet text; encoded content is sent to Ollama with your question.")
 enrich_enabled = st.sidebar.checkbox("Enrich IP addresses via reverse DNS + RDAP", value=False)
 system_prompt = st.sidebar.text_area("System prompt", value=DEFAULT_SYSTEM_PROMPT, height=170)
 
@@ -300,6 +308,7 @@ if (
 ):
     st.session_state.pop("records", None)
     st.session_state.pop("packets", None)
+    st.session_state.ollama_chat = []
     st.session_state.capture_name = uploaded_file.name
     st.session_state.capture_filter = display_filter
 
@@ -391,15 +400,34 @@ with enrich_tab:
         st.caption("RDAP queries disclose the selected public IP addresses to rdap.org. Private, reserved, and non-routable addresses are not sent.")
 
 with analysis_tab:
-    st.write("The capture summary is sent to the selected Ollama model. The model's context window may limit how much evidence it can use; Ollama errors are shown verbatim.")
-    analysis_question = st.text_area("Analysis request", value="Summarize the observed traffic, explain each notable TCP stream, and distinguish facts from hypotheses.", height=100)
-    if st.button("Analyze with Ollama", type="primary", disabled=not selected_model):
+    st.write("Ask a question about this capture. Each question is sent to the selected Ollama model together with extracted packet evidence and this conversation.")
+    for message in st.session_state.ollama_chat:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    question = st.chat_input("Ask Ollama about this capture...", disabled=not selected_model)
+    if question:
+        with st.chat_message("user"):
+            st.markdown(question)
         context = analysis_context(records, streams, include_base64)
-        prompt = f"Analysis request:\n{analysis_question}\n\nPacket capture evidence (JSON):\n{context}"
+        conversation = [
+            {"role": "user", "content": f"Packet capture evidence (JSON):\n{context}"},
+            *st.session_state.ollama_chat,
+            {"role": "user", "content": question},
+        ]
         try:
             with st.spinner(f"Asking {selected_model}..."):
-                answer = ask_ollama(ollama_url, selected_model, system_prompt, prompt)
-            st.markdown(answer)
+                answer = ask_ollama(
+                    ollama_url,
+                    selected_model,
+                    system_prompt,
+                    conversation=conversation,
+                )
+            with st.chat_message("assistant"):
+                st.markdown(answer)
+            st.session_state.ollama_chat.extend([
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": answer},
+            ])
         except requests.RequestException as exc:
             response_text = exc.response.text if exc.response is not None else ""
             st.error(response_text or str(exc))
