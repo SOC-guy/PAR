@@ -9,7 +9,7 @@ import requests
 import streamlit as st
 
 APP_TITLE = "Packet Analyzer Robot"
-from ip_enrichment import enrich_ip
+from ip_enrichment import enrich_ip, enrich_ip_virustotal, is_public_ip
 from ollama_client import DEFAULT_SYSTEM_PROMPT, ask as ask_ollama, list_models as ollama_models
 from packet_analysis import (
     URL_PATTERN,
@@ -67,6 +67,12 @@ else:
 display_filter = st.sidebar.text_input("Wireshark display filter", placeholder="e.g. http or tcp.port == 443")
 include_base64 = st.sidebar.checkbox("Find and decode Base64 candidates", value=False, help="Only decodes printable UTF-8 candidates in extracted packet text; encoded content is sent to Ollama with your question.")
 enrich_enabled = st.sidebar.checkbox("Enrich IP addresses via reverse DNS + RDAP", value=False)
+virustotal_api_key = st.sidebar.text_input(
+    "VirusTotal API key",
+    value=os.environ.get("VT_API_KEY", ""),
+    type="password",
+    help="Used only for VirusTotal IP lookups. The key is kept in this Streamlit session.",
+)
 system_prompt = st.sidebar.text_area("System prompt", value=DEFAULT_SYSTEM_PROMPT, height=170)
 
 st.markdown('<div class="eyebrow">SOC / PCAP WORKBENCH</div>', unsafe_allow_html=True)
@@ -167,16 +173,62 @@ with domains_tab:
 
 with enrich_tab:
     ip_addresses = sorted({value for row in records for value in (row["src"], row["dst"]) if value})
+    public_ip_addresses = [address for address in ip_addresses if is_public_ip(address)]
+    session_results = st.session_state.setdefault("ip_enrichment_results", {})
+    virustotal_results = st.session_state.setdefault("virustotal_results", {})
+    virustotal_enriched_ips = st.session_state.setdefault("virustotal_enriched_ips", set())
+    st.metric("VirusTotal IPs enriched this session", len(virustotal_enriched_ips))
+
     if not enrich_enabled:
-        st.info("Enable IP enrichment in the sidebar to perform reverse DNS and public RDAP lookups. Public lookups only run for globally routable addresses.")
-    elif st.button("Enrich observed IPs", type="primary"):
-        enriched: list[dict[str, str]] = []
-        progress = st.progress(0)
-        for index, address in enumerate(ip_addresses):
-            enriched.append(enrich_ip(address))
-            progress.progress((index + 1) / max(len(ip_addresses), 1))
-        st.dataframe(pd.DataFrame(enriched), width="stretch", hide_index=True)
-        st.caption("RDAP queries disclose the selected public IP addresses to rdap.org. Private, reserved, and non-routable addresses are not sent.")
+        st.info("Enable IP enrichment in the sidebar to select and enrich observed public IP addresses.")
+    elif not public_ip_addresses:
+        st.info("No globally routable IP addresses were found in this capture.")
+    else:
+        if not virustotal_api_key:
+            st.info("Set the VT_API_KEY environment variable to enable VirusTotal lookups.")
+
+        include_virustotal = st.checkbox(
+            "Include VirusTotal reputation data",
+            value=False,
+            disabled=not virustotal_api_key,
+        )
+        select_all_col, clear_col = st.columns(2)
+        if select_all_col.button("Select all public IPs"):
+            for address in public_ip_addresses:
+                st.session_state[f"enrich-ip-{address}"] = True
+        if clear_col.button("Clear selection"):
+            for address in public_ip_addresses:
+                st.session_state[f"enrich-ip-{address}"] = False
+
+        selected_ip_addresses: list[str] = []
+        ip_columns = st.columns(3)
+        for index, address in enumerate(public_ip_addresses):
+            if ip_columns[index % len(ip_columns)].checkbox(address, key=f"enrich-ip-{address}"):
+                selected_ip_addresses.append(address)
+
+        st.caption("At most 3 VirusTotal requests are made per 60 seconds per app process. Selected IPs are sent to rdap.org and, when enabled, VirusTotal.")
+        if st.button("Enrich selected IPs", type="primary", disabled=not selected_ip_addresses):
+            progress = st.progress(0)
+            for index, address in enumerate(selected_ip_addresses):
+                result = dict(session_results.get(address, {"ip": address}))
+                result.update(enrich_ip(address))
+                if include_virustotal:
+                    if address not in virustotal_results:
+                        try:
+                            vt_result = enrich_ip_virustotal(address, virustotal_api_key)
+                        except Exception as exc:
+                            vt_result = {"vt_error": str(exc)}
+                        if not vt_result.get("vt_error"):
+                            virustotal_results[address] = vt_result
+                            virustotal_enriched_ips.add(address)
+                        result.update(vt_result)
+                    else:
+                        result.update(virustotal_results[address])
+                session_results[address] = result
+                progress.progress((index + 1) / len(selected_ip_addresses))
+
+        if session_results:
+            st.dataframe(pd.DataFrame(session_results.values()), width="stretch", hide_index=True)
 
 with analysis_tab:
     st.write("Ask a question about this capture. Each question is sent to the selected Ollama model together with extracted packet evidence and this conversation.")
