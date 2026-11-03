@@ -19,6 +19,8 @@ from packet_analysis import (
     parse_capture,
 )
 
+st.set_page_config(page_title=APP_TITLE, layout="wide")
+
 st.markdown(
     """
     <style>
