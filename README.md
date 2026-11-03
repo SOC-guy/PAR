@@ -2,6 +2,13 @@
 
 A Streamlit interface for extracting packet data from `.pcap` and `.pcapng` captures with PyShark and asking an Ollama model questions about the extracted evidence.
 
+## Modules
+
+- `app.py` provides the Streamlit interface and coordinates the modules.
+- `packet_analysis.py` parses captures with PyShark, extracts packet and stream data, detects Base64 candidates, and prepares evidence for Ollama.
+- `ollama_client.py` lists local Ollama models and sends chat requests.
+- `ip_enrichment.py` performs reverse-DNS and RDAP lookups.
+
 ## Requirements
 
 - Python 3.10 or newer
