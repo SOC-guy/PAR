@@ -1,4 +1,4 @@
-# Packet Analyzer Robot
+# Packet Analyzer Robot - WIP - alpha stage
 
 A Streamlit interface for extracting packet data from `.pcap` and `.pcapng` captures with PyShark and asking an Ollama model questions about the extracted evidence.
 
