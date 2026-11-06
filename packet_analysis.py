@@ -39,8 +39,21 @@ def _field(layer: Any, name: str, default: str = "") -> str:
         return default
 
 
+def _integer_field(layer: Any, name: str) -> int | None:
+    value = _field(layer, name)
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def _packet_summary(packet: Any, index: int) -> dict[str, Any]:
     layers = {layer.layer_name.lower(): layer for layer in packet.layers}
+    frame_info = layers.get("frame") or getattr(packet, "frame_info", None)
+    frame_length_bytes = _integer_field(frame_info, "len")
+    if frame_length_bytes is None:
+        frame_length_bytes = _integer_field(packet, "length")
+    captured_length_bytes = _integer_field(frame_info, "cap_len")
     ip_layer = layers.get("ip") or layers.get("ipv6")
     transport = layers.get("tcp") or layers.get("udp")
     source = _field(ip_layer, "src") if ip_layer else ""
@@ -80,12 +93,15 @@ def _packet_summary(packet: Any, index: int) -> dict[str, Any]:
                 payload_text += " " + str(layer)
             except Exception:
                 pass
+    raw_packet = b""
     try:
         raw_packet = packet.get_raw_packet()
         printable_runs = re.findall(rb"[\x20-\x7e]{8,}", raw_packet)
         payload_text += " " + " ".join(run.decode("ascii") for run in printable_runs)
     except (AttributeError, TypeError, ValueError):
         pass
+    if captured_length_bytes is None and raw_packet:
+        captured_length_bytes = len(raw_packet)
     raw_hex = ""
     try:
         raw_hex = _field(layers.get("tcp") or layers.get("udp") or layers.get("data"), "payload")
@@ -94,6 +110,8 @@ def _packet_summary(packet: Any, index: int) -> dict[str, Any]:
     return {
         "packet": index,
         "time": str(getattr(packet, "sniff_time", "")),
+        "frame_length_bytes": frame_length_bytes,
+        "captured_length_bytes": captured_length_bytes,
         "src": source,
         "dst": destination,
         "protocol": protocol,
@@ -150,6 +168,10 @@ def build_streams(records: list[dict[str, Any]]) -> dict[str, str]:
             bits.append(f"content_type={row['http_content_type']}")
         if row.get("info"):
             bits.append(row["info"])
+        if row.get("frame_length_bytes") is not None:
+            bits.append(f"frame_length_bytes={row['frame_length_bytes']}")
+        if row.get("captured_length_bytes") is not None:
+            bits.append(f"captured_length_bytes={row['captured_length_bytes']}")
         if row.get("payload_text"):
             bits.append(row["payload_text"][:600])
         elif row.get("payload_hex"):
@@ -184,8 +206,20 @@ def analysis_context(
         for row in records
         if row["http_method"] or row["http_status"]
     ]
+    frame_lengths = [
+        row["frame_length_bytes"]
+        for row in records
+        if isinstance(row.get("frame_length_bytes"), int)
+    ]
     context: dict[str, Any] = {
         "packet_count": len(records),
+        "frame_length_summary_bytes": {
+            "available_count": len(frame_lengths),
+            "total": sum(frame_lengths),
+            "minimum": min(frame_lengths) if frame_lengths else None,
+            "maximum": max(frame_lengths) if frame_lengths else None,
+            "average": round(sum(frame_lengths) / len(frame_lengths), 2) if frame_lengths else None,
+        },
         "protocol_counts": protocol_counts,
         "top_endpoints": endpoints.most_common(30),
         "hosts": hosts[:200],
@@ -195,8 +229,12 @@ def analysis_context(
         "tcp_streams": {key: value[:2000] for key, value in list(streams.items())[:20]},
         "packet_examples": [
             {
-                key: (row[key][:300] if key == "payload_text" else row[key])
-                for key in ("packet", "time", "src", "dst", "protocol", "src_port", "dst_port", "info", "payload_text")
+                **{
+                    key: (row[key][:300] if key == "payload_text" else row[key])
+                    for key in ("packet", "time", "src", "dst", "protocol", "src_port", "dst_port", "info", "payload_text")
+                },
+                "frame_length_bytes": row.get("frame_length_bytes"),
+                "captured_length_bytes": row.get("captured_length_bytes"),
             }
             for row in records[:50]
         ],

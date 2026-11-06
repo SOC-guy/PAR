@@ -99,6 +99,13 @@ if (
     st.session_state.capture_name = uploaded_file.name
     st.session_state.capture_filter = display_filter
 
+cached_records = st.session_state.get("records", [])
+if any(
+    "frame_length_bytes" not in row or "captured_length_bytes" not in row
+    for row in cached_records
+):
+    st.session_state.pop("records", None)
+
 if "records" not in st.session_state:
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as temp_file:
@@ -130,7 +137,12 @@ metric_cols[3].metric("Protocols", f"{packets['protocol'].nunique():,}")
 
 packet_tab, streams_tab, domains_tab, enrich_tab, analysis_tab = st.tabs(["Packets", "TCP streams", "HTTP / domains", "IP enrichment", "Ollama analysis"])
 with packet_tab:
-    visible = packets.drop(columns=["payload_text", "payload_hex"], errors="ignore")
+    visible = packets.drop(columns=["payload_text", "payload_hex"], errors="ignore").rename(
+        columns={
+            "frame_length_bytes": "Frame length (bytes)",
+            "captured_length_bytes": "Captured length (bytes)",
+        }
+    )
     page_size = st.selectbox("Rows per page", [100, 500, 1000, 5000], index=1)
     page_count = max((len(visible) + page_size - 1) // page_size, 1)
     page_number = st.number_input("Page", min_value=1, max_value=page_count, value=1, step=1)
