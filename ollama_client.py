@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import requests
 
-DEFAULT_SYSTEM_PROMPT = """You are a network traffic analyst. Analyze only the packet-capture evidence provided. Separate observed facts from hypotheses, cite packet or stream identifiers where available, and do not claim maliciousness without supporting evidence. Do not invent packet contents or external context."""
-
 
 def list_models(base_url: str) -> list[str]:
     """Return model names available from an Ollama server."""

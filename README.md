@@ -8,6 +8,7 @@ A Streamlit interface for extracting packet data from `.pcap` and `.pcapng` capt
 - `packet_analysis.py` parses captures with PyShark, extracts packet and stream data, detects Base64 candidates, and prepares evidence for Ollama.
 - `ollama_client.py` lists local Ollama models and sends chat requests.
 - `ip_enrichment.py` performs reverse-DNS, RDAP, and optional VirusTotal IP lookups through `vt-py`.
+- `system_prompt.txt` contains the default system prompt used for Ollama analysis.
 
 ## Requirements
 

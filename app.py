@@ -10,7 +10,7 @@ import streamlit as st
 
 APP_TITLE = "Packet Analyzer Robot"
 from ip_enrichment import enrich_ip, enrich_ip_virustotal, is_public_ip
-from ollama_client import DEFAULT_SYSTEM_PROMPT, ask as ask_ollama, list_models as ollama_models
+from ollama_client import ask as ask_ollama, list_models as ollama_models
 from packet_analysis import (
     URL_PATTERN,
     analysis_context,
@@ -18,6 +18,8 @@ from packet_analysis import (
     decode_base64_candidates,
     parse_capture,
 )
+
+DEFAULT_SYSTEM_PROMPT = Path(__file__).with_name("system_prompt.txt").read_text(encoding="utf-8").strip()
 
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
