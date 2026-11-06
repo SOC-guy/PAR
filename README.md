@@ -2,6 +2,14 @@
 
 A Streamlit interface for extracting packet data from `.pcap` and `.pcapng` captures with PyShark and asking an Ollama model questions about the extracted evidence.
 
+## Modules
+
+- `app.py` provides the Streamlit interface and coordinates the modules.
+- `packet_analysis.py` parses captures with PyShark, extracts packet and stream data, detects Base64 candidates, and prepares evidence for Ollama.
+- `ollama_client.py` lists local Ollama models and sends chat requests.
+- `ip_enrichment.py` performs reverse-DNS, RDAP, and optional VirusTotal IP lookups through `vt-py`.
+- `system_prompt.txt` contains the default system prompt used for Ollama analysis.
+
 ## Requirements
 
 - Python 3.10 or newer
@@ -32,11 +40,13 @@ To stop the app, press `Ctrl+C`; use `docker compose down` to remove the contain
 
 The default Ollama endpoint is `http://localhost:11434`. The GUI lists locally available models when Ollama is reachable; otherwise, enter a model name manually. Select a model, edit the system prompt, then ask questions in the Ollama chat tab. Each question is sent to Ollama with PyShark-extracted capture evidence and prior chat turns. There is no local question-answering mode. You can also choose a Wireshark display filter and set the capture-size limit in the sidebar.
 
+To enable VirusTotal IP enrichment, enter an API key in the masked VirusTotal API key field in the sidebar, or set `VT_API_KEY` before starting the app. In PowerShell, use `$env:VT_API_KEY = "<your-api-key>"`; in macOS/Linux shells, use `export VT_API_KEY="<your-api-key>"`. Docker Compose forwards this variable to the container. In the IP enrichment tab, select the public IP addresses to query and opt in to VirusTotal results. Requests are limited to at most three per 60 seconds per app process, and successful lookups are counted and cached for the Streamlit session.
+
 The Streamlit server upload ceiling is configured to 4096 MB in `.streamlit/config.toml`; the sidebar lets you choose a lower per-upload ceiling. Deployment platforms and reverse proxies may enforce their own upload limits.
 
 ## Analysis and privacy
 
-PyShark uses `tshark` only to parse the capture and extract packet data; it does not answer questions or interpret the traffic. User questions are sent to the selected Ollama model with extracted capture metadata and printable packet payload excerpts. Ollama must be reachable for the app's question-and-answer workflow. Optional IP enrichment uses reverse DNS and unauthenticated RDAP lookups through `rdap.org`; public IP addresses are sent to those services. Private, reserved, and non-routable addresses are not sent to RDAP. Enrichment is off by default.
+PyShark uses `tshark` only to parse the capture and extract packet data; it does not answer questions or interpret the traffic. User questions are sent to the selected Ollama model with extracted capture metadata and printable packet payload excerpts. Ollama must be reachable for the app's question-and-answer workflow. Optional IP enrichment uses reverse DNS and unauthenticated RDAP lookups through `rdap.org`; selected public IP addresses are sent to those services. VirusTotal lookups are separately opt-in and send only selected public IP addresses using the configured API key. Private, reserved, and non-routable addresses are excluded. Enrichment is off by default.
 
 The Base64 option searches extracted packet text for printable UTF-8 candidates and displays decoded values. It is off by default. Treat capture files and their contents as untrusted data.
 
